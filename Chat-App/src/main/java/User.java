@@ -15,7 +15,9 @@ public class User {
     public String getName()            { return name; }
     public ChatHistory getChatHistory() { return history; }
 
-    // Used by mediator to send and recieve messages
+    public void sendMessage(String content, User... recipients) {
+        sendMessage(content, Arrays.asList(recipients));
+    }
     public void sendMessage(String content, List<User> recipients) {
         server.sendMessage(this, recipients, content);
     }
