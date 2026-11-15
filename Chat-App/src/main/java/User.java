@@ -1,7 +1,8 @@
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 
-public class User {
+public class User implements IterableByUser{
     private final String name;
     private final ChatServer server;
     private final ChatHistory history;
@@ -33,6 +34,19 @@ public class User {
 
     public void blockUser(User other)   { server.blockUser(this, other); }
     public void unblockUser(User other) { server.unblockUser(this, other); }
+
+    @Override
+    public Iterator<Message> iterator(User userToSearchWith) {
+        return history.iterator(userToSearchWith);
+    }
+
+    public void viewMessagesWith(User other) {
+        System.out.println("--- Messages between " + name + " and " + other.getName() + " ---");
+        Iterator<Message> it = iterator(other);
+        while (it.hasNext()) {
+            System.out.println("  " + it.next());
+        }
+    }
 
     public void viewChatHistory() {
         System.out.println("--- Chat history for " + name + " (" + history.size() + " messages) ---");

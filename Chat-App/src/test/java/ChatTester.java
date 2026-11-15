@@ -3,9 +3,7 @@ import org.junit.jupiter.api.*;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -152,7 +150,7 @@ class ChatAppTest {
 
         private User alice;
         private User bob;
-        private ChatHistory history;   // Alice's history (Alice is the owner)
+        private ChatHistory history;
 
         @BeforeEach
         void setUp() {
@@ -202,7 +200,7 @@ class ChatAppTest {
             history.addMessage(sentByAlice("first"));
             Message second = sentByAlice("second");
             history.addMessage(second);
-            history.addMessage(sentByBob("reply"));   // received messages don't count
+            history.addMessage(sentByBob("reply"));
             assertEquals("second", history.getLastMessageSent().getContent());
             assertEquals(second.createMemento(), history.getLastMessageSent());
         }
@@ -265,6 +263,41 @@ class ChatAppTest {
             history.addMessage(sentByAlice("a"));
             history.addMessage(sentByBob("b"));
             assertEquals(2, history.size());
+        }
+
+        @Test
+        void iteratorReturnsSearchMessagesByUser() {
+            assertTrue(history.iterator(bob) instanceof SearchMessagesByUser);
+        }
+
+        @Test
+        void iteratorReturnsOnlyMessagesSentOrReceivedByGivenUser() {
+            User carol = new User("Carol", new ChatServer());
+            Message toBob = sentByAlice("to bob");
+            Message fromBob = sentByBob("from bob");
+            Message toCarol = new Message(alice, Arrays.asList(carol), "to carol");
+            history.addMessage(toBob);
+            history.addMessage(fromBob);
+            history.addMessage(toCarol);
+
+            Iterator<Message> byBob = history.iterator(bob);
+            assertSame(toBob, byBob.next());
+            assertSame(fromBob, byBob.next());
+            assertFalse(byBob.hasNext());
+
+            Iterator<Message> byCarol = history.iterator(carol);
+            assertSame(toCarol, byCarol.next());
+            assertFalse(byCarol.hasNext());
+        }
+
+        @Test
+        void iteratorOnEmptyHistoryHasNothing() {
+            assertFalse(history.iterator(bob).hasNext());
+        }
+
+        @Test
+        void historyIsIterableByUser() {
+            assertTrue(history instanceof IterableByUser);
         }
     }
 
@@ -451,8 +484,6 @@ class ChatAppTest {
             assertFalse(server.isBlocked(new User("Dave", server), alice));
         }
 
-        // ---- undoLastMessage ----
-
         @Test
         void undoLastMessageRemovesMessageFromSenderAndAllRecipients() {
             server.sendMessage(alice, Arrays.asList(bob, carol), "oops");
@@ -549,7 +580,6 @@ class ChatAppTest {
             assertNotNull(alice.getChatHistory());
             assertEquals(0, alice.getChatHistory().size());
 
-            // The history belongs to the user: a message Alice sends creates a memento in it
             alice.sendMessage("hi", bob);
             assertNotNull(alice.getChatHistory().getLastMessageSent());
             assertNull(bob.getChatHistory().getLastMessageSent());
@@ -654,6 +684,167 @@ class ChatAppTest {
         void toStringReturnsName() {
             assertEquals("Alice", alice.toString());
         }
+
+        private List<String> contents(Iterator<Message> it) {
+            List<String> result = new ArrayList<>();
+            while (it.hasNext()) result.add(it.next().getContent());
+            return result;
+        }
+
+        @Test
+        void userIsIterableByUser() {
+            assertTrue(alice instanceof IterableByUser);
+        }
+
+        @Test
+        void iteratorDelegatesToChatHistory() {
+            alice.sendMessage("a1", bob);
+            bob.sendMessage("b1", alice);
+            alice.sendMessage("a2", carol);
+
+            assertEquals(Arrays.asList("a1", "b1"), contents(alice.iterator(bob)));
+            assertEquals(Arrays.asList("a2"), contents(alice.iterator(carol)));
+            assertEquals(Arrays.asList("a1", "b1"), contents(bob.iterator(alice)));
+        }
+
+        @Test
+        void iteratorForUserWithNoMessagesIsEmpty() {
+            alice.sendMessage("a1", bob);
+            assertFalse(alice.iterator(carol).hasNext());
+        }
+
+        @Test
+        void viewMessagesWithPrintsOnlyMessagesInvolvingThatUser() {
+            alice.sendMessage("hello bob", bob);
+            alice.sendMessage("hello carol", carol);
+            bob.sendMessage("hi alice", alice);
+
+            String output = captureOutput(() -> alice.viewMessagesWith(bob));
+
+            assertTrue(output.contains("Messages between Alice and Bob"));
+            assertTrue(output.contains("hello bob"));
+            assertTrue(output.contains("hi alice"));
+            assertFalse(output.contains("hello carol"));
+        }
+
+        @Test
+        void viewMessagesWithPrintsOnlyHeaderWhenNoMessages() {
+            String output = captureOutput(() -> alice.viewMessagesWith(carol));
+            assertTrue(output.contains("Messages between Alice and Carol"));
+            assertFalse(output.contains("->"));
+        }
     }
 
+    @Nested
+    class SearchMessagesByUserTest {
+
+        private User alice;
+        private User bob;
+        private User carol;
+        private Message aliceToBob;
+        private Message bobToAlice;
+        private Message aliceToCarol;
+        private Message carolToBob;
+        private List<Message> all;
+
+        @BeforeEach
+        void setUp() {
+            ChatServer server = new ChatServer();
+            alice = new User("Alice", server);
+            bob = new User("Bob", server);
+            carol = new User("Carol", server);
+            aliceToBob = new Message(alice, Arrays.asList(bob), "alice to bob");
+            bobToAlice = new Message(bob, Arrays.asList(alice), "bob to alice");
+            aliceToCarol = new Message(alice, Arrays.asList(carol), "alice to carol");
+            carolToBob = new Message(carol, Arrays.asList(bob), "carol to bob");
+            all = Arrays.asList(aliceToBob, bobToAlice, aliceToCarol, carolToBob);
+        }
+
+        @Test
+        void constructorCreatesIteratorStartingAtTheFirstMatch() {
+            SearchMessagesByUser it = new SearchMessagesByUser(all, carol);
+            assertTrue(it.hasNext());
+            assertSame(aliceToCarol, it.next());
+        }
+
+        @Test
+        void hasNextIsTrueWhenAMatchRemainsAndFalseWhenNone() {
+            assertTrue(new SearchMessagesByUser(all, bob).hasNext());
+
+            User dave = new User("Dave", new ChatServer());
+            assertFalse(new SearchMessagesByUser(all, dave).hasNext());
+        }
+
+        @Test
+        void hasNextOnEmptyListIsFalse() {
+            assertFalse(new SearchMessagesByUser(new ArrayList<Message>(), alice).hasNext());
+        }
+
+        @Test
+        void hasNextDoesNotConsumeTheMessage() {
+            SearchMessagesByUser it = new SearchMessagesByUser(all, carol);
+            assertTrue(it.hasNext());
+            assertTrue(it.hasNext());
+            assertTrue(it.hasNext());
+            assertSame(aliceToCarol, it.next());
+        }
+
+        @Test
+        void nextReturnsMessagesSentOrReceivedByUserInOrder() {
+            SearchMessagesByUser it = new SearchMessagesByUser(all, bob);
+            assertSame(aliceToBob, it.next());    // Bob received
+            assertSame(bobToAlice, it.next());    // Bob sent
+            assertSame(carolToBob, it.next());    // Bob received
+            assertFalse(it.hasNext());
+        }
+
+        @Test
+        void nextSkipsMessagesNotInvolvingTheUser() {
+            SearchMessagesByUser it = new SearchMessagesByUser(all, carol);
+            assertSame(aliceToCarol, it.next());
+            assertSame(carolToBob, it.next());
+            assertFalse(it.hasNext());
+        }
+
+        @Test
+        void nextWorksWithoutCallingHasNextFirst() {
+            SearchMessagesByUser it = new SearchMessagesByUser(all, alice);
+            assertSame(aliceToBob, it.next());
+            assertSame(bobToAlice, it.next());
+            assertSame(aliceToCarol, it.next());
+        }
+
+        @Test
+        void nextThrowsWhenNoMoreMessages() {
+            SearchMessagesByUser it = new SearchMessagesByUser(all, carol);
+            it.next();
+            it.next();
+            assertThrows(NoSuchElementException.class, it::next);
+
+            User dave = new User("Dave", new ChatServer());
+            assertThrows(NoSuchElementException.class, () -> new SearchMessagesByUser(all, dave).next());
+        }
+
+        @Test
+        void iteratorWorksOnASnapshotOfTheList() {
+            List<Message> mutable = new ArrayList<>(all);
+            SearchMessagesByUser it = new SearchMessagesByUser(mutable, carol);
+            mutable.clear();
+            assertSame(aliceToCarol, it.next());
+            assertSame(carolToBob, it.next());
+        }
+
+        @Test
+        void removeIsNotSupported() {
+            SearchMessagesByUser it = new SearchMessagesByUser(all, bob);
+            it.next();
+            assertThrows(UnsupportedOperationException.class, it::remove);
+        }
+
+        @Test
+        void implementsIteratorOfMessage() {
+            Iterator<Message> it = new SearchMessagesByUser(all, bob);
+            assertTrue(it.hasNext());
+        }
+    }
 }

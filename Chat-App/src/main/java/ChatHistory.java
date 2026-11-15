@@ -1,10 +1,6 @@
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Deque;
-import java.util.List;
+import java.util.*;
 
-public class ChatHistory {
+public class ChatHistory implements IterableByUser {
     private final User owner;
     private final List<Message> messages = new ArrayList<>();
     private final Deque<MessageMemento> sentMementos = new ArrayDeque<>();
@@ -47,5 +43,10 @@ public class ChatHistory {
 
     public int size() {
         return messages.size();
+    }
+
+    @Override
+    public Iterator<Message> iterator(User userToSearchWith) {
+        return new SearchMessagesByUser(messages, userToSearchWith);
     }
 }

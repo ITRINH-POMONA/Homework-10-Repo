@@ -1,3 +1,5 @@
+import java.util.Iterator;
+
 public class Main {
     public static void main(String[] args){
         ChatServer server = new ChatServer();
@@ -41,7 +43,18 @@ public class Main {
         carol.unblockUser(alice);
         alice.sendMessage("Carol, can you see this now?", carol);
 
-        System.out.println("\n=== 6. Unregistering ===");
+        System.out.println("\n6. Iterator: messages by a specific user");
+        alice.viewMessagesWith(bob);     // messages Alice sent to / received from Bob
+        System.out.println();
+        alice.viewMessagesWith(carol);
+        System.out.println();
+        System.out.println("Using the iterator directly (Bob's history, messages involving Alice):");
+        Iterator<Message> it = bob.iterator(alice);
+        while (it.hasNext()) {
+            System.out.println("  " + it.next().getContent());
+        }
+
+        System.out.println("\n7. Unregistering:");
         server.unregisterUser(carol);
         alice.sendMessage("Anyone there?", bob, carol);      // Carol is skipped
 
